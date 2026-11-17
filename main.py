@@ -3,7 +3,7 @@ from analyzer import BankAnalyzer
 from datetime import datetime
 
 # Настройка страницы (строго и без лишних украшательств)
-st.set_page_config(page_title="Анализ выписок", layout="wide")
+st.set_page_config(page_title="GleanFint", layout="wide")
 # st.markdown(
 #     """
 #     <style>
@@ -14,8 +14,8 @@ st.set_page_config(page_title="Анализ выписок", layout="wide")
 #     """,
 #     unsafe_allow_html=True
 # )
-st.title("Аналитика расходов")
-st.caption("Автоматический парсинг банковских выписок и генерация отчетов")
+st.title("GleanFint")
+st.caption("Автоматический парсер-анализатор банковских выписок")
 
 # 1. Переносим загрузку файла в боковое меню
 with st.sidebar:

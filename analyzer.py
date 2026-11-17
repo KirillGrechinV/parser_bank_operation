@@ -2,7 +2,7 @@ import pandas as pd
 
 
 class BankAnalyzer:
-    """Класс для анализа банковских выписок: загрузка, очистка, статистика и экспорт."""
+    "Класс для анализа: загрузка, очистка, статистика и экспорт."
 
     def __init__(self, file_bytes, filename):
         self.filename = filename
