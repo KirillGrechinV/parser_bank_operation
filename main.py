@@ -15,7 +15,7 @@ st.set_page_config(page_title="GleanFint", layout="wide")
 #     unsafe_allow_html=True
 # )
 #
-st.title("GleanFint1")
+st.title("GleanFint")
 st.caption("Автоматический парсер-анализатор банковских выписок")
 
 # 1. Переносим загрузку файла в боковое меню
