@@ -2,45 +2,77 @@ import pandas as pd
 
 
 class BankAnalyzer:
-    "Класс для анализа: загрузка, очистка, статистика и экспорт."
+    """Класс для анализа выписки: загрузка, очистка, статистика и экспорт."""
 
     def __init__(self, file_bytes, filename):
         self.filename = filename
         self.raw_df = self._load_and_clean(file_bytes, filename)
 
+        # Заранее создаем пустые таблицы, чтобы они существовали еще до запуска обработки
         self.expenses = pd.DataFrame()
         self.income = pd.DataFrame()
         self.transit = pd.DataFrame()
 
-        self.col_cat = 'Категория'  # значение по умолчанию
-        for col in self.raw_df.columns:
-            if 'категория' in col.lower():
-                self.col_cat = col
-                break
-        self.col_desc = next((c for c in self.raw_df.columns if 'описание' in c.lower() or 'детали' in c.lower()),
-                             'Описание')
+        # Реальные названия нужных колонок в загруженной выписке
+        self.col_cat = self._find_column(self.raw_df.columns, ['категория'], default='Категория')
+        self.col_desc = self._find_column(self.raw_df.columns, ['описание', 'детали'], default='Описание')
+
+    def _find_column(self, columns, keywords, default=None):
+        # В выписках может смениться название колонок, поэтому учтем это
+        # поэтому ищем подходящую колонку по ключевым словам без учета регистра
+        for col in columns:
+            col_lower = col.lower()
+            for word in keywords:
+                if word in col_lower:
+                    return col
+        return default
 
     def _load_and_clean(self, file_bytes, filename):
-        ext = filename.split('.')[-1].lower()
-        if ext in ['xls', 'xlsx']:
-            df = pd.read_excel(file_bytes)
-        else:
-            try:
-                df = pd.read_csv(file_bytes, sep=';', encoding='utf-8')
-            except UnicodeDecodeError:
-                df = pd.read_csv(file_bytes, sep=';', encoding='cp1251')
+        df = self._read_raw_file(file_bytes, filename)
+        df = self._fix_table_header(df)
 
-        for i in range(min(15, len(df))):
-            row_values = [str(val).lower() for val in df.iloc[i].values]
-            joined_row = " ".join(row_values)
+        # Убираем случайные пробелы по краям названий колонок, чтобы они не мешали поиску
+        clean_columns = []
+        for col in df.columns:
+            clean_columns.append(str(col).strip())
+        df.columns = clean_columns
+
+        return df
+
+    def _read_raw_file(self, file_bytes, filename):
+        ext = filename.split('.')[-1].lower()
+
+        if ext in ['xls', 'xlsx']:
+            return pd.read_excel(file_bytes)
+
+        # Выписки в CSV часто сохраняют в старой Windows-кодировке cp1251,
+        # поэтому сначала пробуем стандартный utf-8, а при ошибке переключаемся на cp1251
+        try:
+            return pd.read_csv(file_bytes, sep=';', encoding='utf-8')
+        except UnicodeDecodeError:
+            # После неудачной попытки чтения возвращаем курсор файла в начало
+            if hasattr(file_bytes, 'seek'):
+                file_bytes.seek(0)
+            return pd.read_csv(file_bytes, sep=';', encoding='cp1251')
+
+    def _fix_table_header(self, df):
+        # В выписках первые строки часто заняты служебной шапкой (название банка, номер счета, период).
+        # Просматриваем первые 15 строк в поисках реальных заголовков таблицы.
+        rows_to_check = min(15, len(df))
+
+        for i in range(rows_to_check):
+            row_words = []
+            for val in df.iloc[i].values:
+                row_words.append(str(val).lower())
+
+            joined_row = " ".join(row_words)
             if 'статус' in joined_row and 'сумма' in joined_row:
+                # Ставим найденную строку как заголовки колонок и отбрасываем всё, что было выше неё
                 df.columns = df.iloc[i].values
                 df = df.iloc[i + 1:].reset_index(drop=True)
                 break
 
-        df.columns = [str(c).strip() for c in df.columns]
         return df
-
     def _clean_money(self, val):
         val_str = str(val).replace('\xa0', '').replace(' ', '').replace(',', '.')
         try:
@@ -48,39 +80,59 @@ class BankAnalyzer:
         except ValueError:
             return 0.0
 
+    def _is_transit_operation(self, row):
+        # Транзитными переводами (например, переводы себе) считаем только списания
+        if row['Сумма_чистая'] >= 0:
+            return False
+
+        cat = str(row[self.col_cat]).lower()
+        if 'перевод' in cat:
+            return True
+
+        desc = str(row[self.col_desc]).lower()
+        transit_words = ['перевод', 'себе', 'аноним']
+        for word in transit_words:
+            if word in desc:
+                return True
+
+        return False
+
     def process_data(self):
         df = self.raw_df.copy()
 
-        col_status = next((c for c in df.columns if 'статус' in c.lower()), None)
-        col_amount = next((c for c in df.columns if 'сумма' in c.lower()), None)
-
+        # 1. Ищем обязательные колонки, без которых анализ невозможен
+        col_status = self._find_column(df.columns, ['статус'])
+        col_amount = self._find_column(df.columns, ['сумма'])
         if not col_status or not col_amount:
             raise ValueError("Не найдены колонки Статус или Сумма")
 
+        # 2. Оставляем только успешные операции ('ok' — латиницей, 'ок' — кириллицей)
         valid_statuses = ['ok', 'ок', 'успешно']
         status_cleaned = df[col_status].astype(str).str.strip().str.lower()
-        df = df[status_cleaned.isin(valid_statuses)]
+        df = df[status_cleaned.isin(valid_statuses)].copy()
 
+        # 3. Переводим суммы в числа и убираем нулевые операции
         df['Сумма_чистая'] = df[col_amount].apply(self._clean_money)
         df = df[df['Сумма_чистая'] != 0].copy()
 
+        # 4. Заполняем пропуски, чтобы группировка по категориям и отчёт не падали на пустых ячейках
         if self.col_cat not in df.columns:
             df[self.col_cat] = 'Без категории'
+        if self.col_desc not in df.columns:
+            df[self.col_desc] = 'Без описания'
+
         df[self.col_cat] = df[self.col_cat].fillna('Без категории')
         df[self.col_desc] = df[self.col_desc].fillna('Без описания')
 
-        transit_words = ['перевод', 'себе', 'аноним']
+        # 5. Отделяем переводы от реальных расходов и доходов
+        transit_flags = []
+        for _, row in df.iterrows():
+            transit_flags.append(self._is_transit_operation(row))
 
-        def is_transit(row):
-            desc = str(row[self.col_desc]).lower()
-            cat = str(row[self.col_cat]).lower()
-            is_negative = row['Сумма_чистая'] < 0
-            has_keyword = any(w in desc for w in transit_words) or 'перевод' in cat
-            return is_negative and has_keyword
-
-        transit_mask = df.apply(is_transit, axis=1)
+        transit_mask = pd.Series(transit_flags, index=df.index, dtype=bool)
         self.transit = df[transit_mask].copy()
 
+        # Знак ~ инвертирует маску: берем все операции, которые НЕ являются переводами
         df_clean = df[~transit_mask].copy()
         self.expenses = df_clean[df_clean['Сумма_чистая'] < 0].copy()
         self.income = df_clean[df_clean['Сумма_чистая'] > 0].copy()
@@ -89,8 +141,14 @@ class BankAnalyzer:
         if self.expenses.empty:
             return None
 
-        category_sums = self.expenses.groupby(self.col_cat)['Сумма_чистая'].sum().abs()
-        top_5_expenses = self.expenses.sort_values(by='Сумма_чистая').head(5)
+        # Суммируем расходы по категориям и берем модуль, так как списания хранятся с минусом
+        grouped_expenses = self.expenses.groupby(self.col_cat)['Сумма_чистая'].sum()
+        category_sums = grouped_expenses.abs()
+
+        # Сортируем по возрастанию: среди отрицательных чисел самые крупные траты (например, -15000) окажутся первыми
+        sorted_expenses = self.expenses.sort_values(by='Сумма_чистая', ascending=True)
+        top_5_expenses = sorted_expenses.head(5)
+
         avg_expense = abs(self.expenses['Сумма_чистая'].mean())
 
         return {

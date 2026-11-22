@@ -2,28 +2,18 @@ import streamlit as st
 from analyzer import BankAnalyzer
 from datetime import datetime
 
-# Настройка страницы (строго и без лишних украшательств)
+# Настройка страницы
 st.set_page_config(page_title="GleanFint", layout="wide")
-# st.markdown(
-#     """
-#     <style>
-#     html, body, [class*="css"] {
-#         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
-#     }
-#     </style>
-#     """,
-#     unsafe_allow_html=True
-# )
-#
+
 st.title("GleanFint")
 st.caption("Автоматический парсер-анализатор банковских выписок")
 
-# 1. Переносим загрузку файла в боковое меню
+# загрузка файла в боковое меню
 with st.sidebar:
     st.header("Настройки")
     uploaded_file = st.file_uploader("Загрузите выписку (.csv, .xlsx)", type=["csv", "xlsx"])
 
-# Если файл не загружен, показываем аккуратное приветствие по центру
+# Если файл не загружен
 if not uploaded_file:
     st.info("Пожалуйста, загрузите банковскую выписку в левом меню для начала работы.")
 else:
@@ -34,7 +24,7 @@ else:
             analytics = analyzer.get_analytics()
             markdown_text = analyzer.generate_markdown_report()
 
-        # 2. Метрики (округляем до целых чисел, чтобы копейки не мусорили интерфейс)
+        # 2. Метрики (округляем до целых чисел)
         total_exp = abs(analyzer.expenses['Сумма_чистая'].sum()) if not analyzer.expenses.empty else 0
         total_inc = abs(analyzer.income['Сумма_чистая'].sum()) if not analyzer.income.empty else 0
         total_trans = abs(analyzer.transit['Сумма_чистая'].sum()) if not analyzer.transit.empty else 0
@@ -46,9 +36,9 @@ else:
         if analytics:
             col4.metric("Средний чек", f"{analytics['avg_expense']:,.0f} ₽")
 
-        st.divider()  # Нативный разделитель Streamlit вместо маркдауна
+        st.divider()  # разделитель Streamlit вместо маркдауна
 
-        # 3. Графики и Топ-5 (аккуратно и строго)
+        # 3. Графики
         if analytics:
             col_chart, col_top = st.columns([3, 2], gap="large")
 
@@ -58,16 +48,15 @@ else:
 
             with col_top:
                 st.subheader("Топ-5 покупок")
-                # Делаем из Топ-5 аккуратную мини-таблицу вместо цветастых блоков
                 top_df = analytics["top_5"][[analyzer.col_desc, 'Сумма_чистая']].copy()
                 top_df['Сумма_чистая'] = top_df['Сумма_чистая'].abs().apply(lambda x: f"{x:,.2f} ₽")
                 top_df.columns = ["Описание", "Сумма"]
-                # hide_index=True убирает лишние технические номера строк слева
+                # hide_index=True убирает технические номера строк слева
                 st.dataframe(top_df, hide_index=True, use_container_width=True)
 
         st.divider()
 
-        # 4. Компактное отображение отчета и таблиц (всё во вкладках)
+        # Компактное отображение отчета и таблиц
         st.subheader("Детализация и отчеты")
 
         tab1, tab2, tab3, tab4 = st.tabs([
@@ -88,7 +77,7 @@ else:
                     mime="text/markdown",
                     use_container_width=True,
                 )
-            # Выводим код под кнопкой, чтобы было удобно копировать текст
+            # код под кнопкой, чтобы было удобно копировать текст
             st.code(markdown_text, language="markdown")
 
         with tab2:
