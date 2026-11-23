@@ -64,8 +64,8 @@ class BankAnalyzer:
             for val in df.iloc[i].values:
                 row_words.append(str(val).lower()) # <- str не убирать, ошибка чтения будет
 
-            joined_row = " ".join(row_words) # <- .join склеивает строку
-            if 'статус' in joined_row and 'сумма' in joined_row: # ищем сразу два, если в выписке будет формат статус + сумма в одной строке
+            joined_row = " ".join(row_words)
+            if 'статус' in joined_row and 'сумма' in joined_row: # ищем сразу два слова, чтобы не спутать со служебной строкой шапки, где есть только слово "сумма"
                 # Ставим найденную строку как заголовки колонок и отбрасываем всё, что было выше неё
                 df.columns = df.iloc[i].values # <- .values возвращает массив
                 df = df.iloc[i + 1:].reset_index(drop=True) # drop=True удаляет старый индекс
@@ -73,7 +73,7 @@ class BankAnalyzer:
 
         return df
     def _clean_money(self, val):
-        val_str = str(val).replace('\xa0', '').replace(' ', '').replace(',', '.')
+        val_str = str(val).replace('\xa0', '').replace(' ', '').replace(',', '.') # \xa0 — неразрывный пробел
         try:
             return float(val_str)
         except ValueError:
@@ -144,7 +144,6 @@ class BankAnalyzer:
         grouped_expenses = self.expenses.groupby(self.col_cat)['Сумма_чистая'].sum()
         category_sums = grouped_expenses.abs()
 
-        # Сортируем по возрастанию: среди отрицательных чисел самые крупные траты (например, -15000) окажутся первыми
         sorted_expenses = self.expenses.sort_values(by='Сумма_чистая', ascending=True)
         top_5_expenses = sorted_expenses.head(5)
 
