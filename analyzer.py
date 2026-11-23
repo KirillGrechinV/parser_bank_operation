@@ -31,45 +31,44 @@ class BankAnalyzer:
         df = self._read_raw_file(file_bytes, filename)
         df = self._fix_table_header(df)
 
-        # Убираем случайные пробелы по краям названий колонок, чтобы они не мешали поиску
+        # на всякий случай убираем случайные пробелы по краям названий колонок, чтобы они не мешали поиску,
         clean_columns = []
         for col in df.columns:
-            clean_columns.append(str(col).strip())
+            clean_columns.append(str(col).strip()) # <- str не убирать, ошибка чтения будет
         df.columns = clean_columns
 
         return df
 
     def _read_raw_file(self, file_bytes, filename):
-        ext = filename.split('.')[-1].lower()
+        ext = filename.split('.')[-1].lower() # <- разбиваем файл для понимания формата, .lower() если будет CSV, XLSX и т.д. а не csv и т.д.
 
         if ext in ['xls', 'xlsx']:
-            return pd.read_excel(file_bytes)
+            return pd.read_excel(file_bytes) # <- читает только олин лист по дефолту
 
-        # Выписки в CSV часто сохраняют в старой Windows-кодировке cp1251,
-        # поэтому сначала пробуем стандартный utf-8, а при ошибке переключаемся на cp1251
+        # Выписки в CSV могут быть cp1251,
+        # поэтому сначала пробуем стандартный utf-8, а при ошибке - на cp1251
         try:
             return pd.read_csv(file_bytes, sep=';', encoding='utf-8')
         except UnicodeDecodeError:
             # После неудачной попытки чтения возвращаем курсор файла в начало
             if hasattr(file_bytes, 'seek'):
-                file_bytes.seek(0)
+                file_bytes.seek(0) # <- seek(0) не убирать, может начать парсить не с нуля
             return pd.read_csv(file_bytes, sep=';', encoding='cp1251')
 
     def _fix_table_header(self, df):
-        # В выписках первые строки часто заняты служебной шапкой (название банка, номер счета, период).
-        # Просматриваем первые 15 строк в поисках реальных заголовков таблицы.
-        rows_to_check = min(15, len(df))
+        # В выписках первые строки могут быть заняты служебной шапкой (название банка, номер счета, период). Поэтому подготовим
+        rows_to_check = min(15, len(df)) # Просматриваем первые 15 строк в поисках реальных заголовков таблицы.
 
         for i in range(rows_to_check):
             row_words = []
             for val in df.iloc[i].values:
-                row_words.append(str(val).lower())
+                row_words.append(str(val).lower()) # <- str не убирать, ошибка чтения будет
 
-            joined_row = " ".join(row_words)
-            if 'статус' in joined_row and 'сумма' in joined_row:
+            joined_row = " ".join(row_words) # <- .join склеивает строку
+            if 'статус' in joined_row and 'сумма' in joined_row: # ищем сразу два, если в выписке будет формат статус + сумма в одной строке
                 # Ставим найденную строку как заголовки колонок и отбрасываем всё, что было выше неё
-                df.columns = df.iloc[i].values
-                df = df.iloc[i + 1:].reset_index(drop=True)
+                df.columns = df.iloc[i].values # <- .values возвращает массив
+                df = df.iloc[i + 1:].reset_index(drop=True) # drop=True удаляет старый индекс
                 break
 
         return df
@@ -98,7 +97,7 @@ class BankAnalyzer:
         return False
 
     def process_data(self):
-        df = self.raw_df.copy()
+        df = self.raw_df.copy() # <- через copy() новая таблица, сохраняем сырую таблицу
 
         # 1. Ищем обязательные колонки, без которых анализ невозможен
         col_status = self._find_column(df.columns, ['статус'])
@@ -109,11 +108,11 @@ class BankAnalyzer:
         # 2. Оставляем только успешные операции ('ok' — латиницей, 'ок' — кириллицей)
         valid_statuses = ['ok', 'ок', 'успешно']
         status_cleaned = df[col_status].astype(str).str.strip().str.lower()
-        df = df[status_cleaned.isin(valid_statuses)].copy()
+        df = df[status_cleaned.isin(valid_statuses)].copy() # <- через copy() новая таблица
 
         # 3. Переводим суммы в числа и убираем нулевые операции
-        df['Сумма_чистая'] = df[col_amount].apply(self._clean_money)
-        df = df[df['Сумма_чистая'] != 0].copy()
+        df['Сумма_чистая'] = df[col_amount].apply(self._clean_money) # <- вызов "чистки"
+        df = df[df['Сумма_чистая'] != 0].copy() # <- отброс мусора
 
         # 4. Заполняем пропуски, чтобы группировка по категориям и отчёт не падали на пустых ячейках
         if self.col_cat not in df.columns:
@@ -138,7 +137,7 @@ class BankAnalyzer:
         self.income = df_clean[df_clean['Сумма_чистая'] > 0].copy()
 
     def get_analytics(self):
-        if self.expenses.empty:
+        if self.expenses.empty: # <- если колонка пустая
             return None
 
         # Суммируем расходы по категориям и берем модуль, так как списания хранятся с минусом
